@@ -9,6 +9,7 @@ import {
 } from '../lib/exporter';
 import { applyRules, totalRowsTouched, WORKER_ROW_THRESHOLD } from '../lib/lookup';
 import type {
+  ColumnMapping,
   ConfigExport,
   FileData,
   LookupRule,
@@ -53,6 +54,30 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
     () => totalRowsTouched(mainFile, files, rules),
     [mainFile, files, rules],
   );
+
+  // Validate fillExisting mappings: every such mapping must have a targetColumn that
+  // currently exists on the main file. We surface this as a non-blocking banner that
+  // also disables the "Calcola anteprima" button until fixed.
+  const validationErrors = useMemo(() => {
+    const issues: string[] = [];
+    const mainCols = mainFile.sheets[mainFile.activeSheetIndex].columns;
+    for (let ri = 0; ri < rules.length; ri++) {
+      const rule = rules[ri];
+      for (const m of rule.columns) {
+        if (m.writeMode !== 'fillExisting') continue;
+        if (!m.targetColumn) {
+          issues.push(
+            `Regola ${ri + 1}: la colonna sorgente «${m.sourceColumn}» è in modalità "Riempi colonna esistente" ma non ha una colonna di destinazione.`,
+          );
+        } else if (!mainCols.includes(m.targetColumn)) {
+          issues.push(
+            `Regola ${ri + 1}: la colonna di destinazione «${m.targetColumn}» non esiste più nel file principale.`,
+          );
+        }
+      }
+    }
+    return issues;
+  }, [rules, mainFile]);
 
   const run = async () => {
     setRunning(true);
@@ -122,6 +147,7 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
       }
       const warnings: string[] = [];
       const remapped: LookupRule[] = [];
+      const mainCols = mainFile.sheets[mainFile.activeSheetIndex].columns;
       for (const r of parsed.rules) {
         const candidate =
           files.find((f) => f.label === r.sourceFileLabel) ??
@@ -131,7 +157,6 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
           continue;
         }
         const srcCols = candidate.sheets[candidate.activeSheetIndex].columns;
-        const mainCols = mainFile.sheets[mainFile.activeSheetIndex].columns;
         if (!mainCols.includes(r.mainKey)) {
           warnings.push(
             `La colonna chiave «${r.mainKey}» non esiste nel file principale (regola saltata).`,
@@ -144,17 +169,34 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
           );
           continue;
         }
+        const normalizedColumns: ColumnMapping[] = [];
+        for (const c of r.columns) {
+          if (!srcCols.includes(c.sourceColumn)) {
+            warnings.push(
+              `Colonna «${c.sourceColumn}» mancante in «${candidate.label}» — ignorata.`,
+            );
+            continue;
+          }
+          const normalized = normalizeMapping(c, mainCols);
+          if (normalized.writeMode === 'fillExisting' && !normalized.targetColumn) {
+            warnings.push(
+              `Colonna «${c.sourceColumn}» in modalità "Riempi colonna esistente" senza destinazione — completala dopo il caricamento.`,
+            );
+          } else if (
+            normalized.writeMode === 'fillExisting' &&
+            normalized.targetColumn &&
+            !mainCols.includes(normalized.targetColumn)
+          ) {
+            warnings.push(
+              `Colonna di destinazione «${normalized.targetColumn}» non presente nel file principale — verifica la regola.`,
+            );
+          }
+          normalizedColumns.push(normalized);
+        }
         remapped.push({
           ...r,
           sourceFileId: candidate.id,
-          columns: r.columns.filter((c) => {
-            const ok = srcCols.includes(c.sourceColumn);
-            if (!ok)
-              warnings.push(
-                `Colonna «${c.sourceColumn}» mancante in «${candidate.label}» — ignorata.`,
-              );
-            return ok;
-          }),
+          columns: normalizedColumns,
         });
       }
       onLoadConfig(remapped, warnings);
@@ -163,10 +205,17 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
     }
   };
 
+  const blockedByValidation = validationErrors.length > 0;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn-primary" onClick={run} disabled={running}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={run}
+          disabled={running || blockedByValidation}
+        >
           {running ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
           {running ? 'Elaborazione…' : 'Calcola anteprima'}
         </button>
@@ -193,6 +242,17 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
         />
       </div>
 
+      {validationErrors.length > 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">Completa la configurazione prima di esportare:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {validationErrors.map((m, i) => (
+              <li key={i}>{m}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {running ? <ProgressBar value={progress} label="Esecuzione regole" /> : null}
 
       {error ? (
@@ -209,6 +269,8 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
               const label = rule
                 ? `${mainFile.label} ⟵ ${files.find((f) => f.id === rule.sourceFileId)?.label ?? '?'}`
                 : 'Regola';
+              const fmt = (n: number) => n.toLocaleString('it-IT');
+              const hasFillStats = typeof s.filled === 'number';
               return (
                 <div
                   key={s.ruleId}
@@ -216,16 +278,29 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
                 >
                   <p className="truncate font-medium text-slate-900 dark:text-white">{label}</p>
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    {s.processed.toLocaleString('it-IT')} righe processate
+                    {fmt(s.processed)} righe processate
                   </p>
-                  <div className="mt-2 flex gap-3 text-xs">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
                     <span className="text-emerald-600 dark:text-emerald-300">
-                      ✓ {s.matches.toLocaleString('it-IT')} match
+                      ✓ {fmt(s.matches)} match
                     </span>
                     <span className="text-rose-600 dark:text-rose-300">
-                      ✗ {s.noMatches.toLocaleString('it-IT')} senza match
+                      ✗ {fmt(s.noMatches)} senza match
                     </span>
                   </div>
+                  {hasFillStats ? (
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      <span className="text-emerald-600 dark:text-emerald-300">
+                        ▣ {fmt(s.filled ?? 0)} celle riempite
+                      </span>
+                      <span className="text-amber-600 dark:text-amber-300">
+                        ✎ {fmt(s.overwritten ?? 0)} celle sovrascritte
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        – {fmt(s.untouched ?? 0)} celle lasciate intatte
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
@@ -233,7 +308,8 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
 
           <div>
             <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-              Anteprima prime 50 righe — colonne aggiunte evidenziate in verde.
+              Anteprima prime 50 righe — colonne aggiunte evidenziate, celle riempite in verde, celle
+              sovrascritte in arancione.
             </p>
             <ResultPreview result={result} baseColumns={baseColumns} maxRows={50} />
           </div>
@@ -299,6 +375,27 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
       )}
     </div>
   );
+}
+
+/**
+ * Backward-compatible normalizer for ColumnMapping loaded from a saved JSON config.
+ * Pre-0.2.0 configs do not carry `writeMode` and must default to 'newColumn'.
+ */
+function normalizeMapping(c: Partial<ColumnMapping>, mainColumns: string[]): ColumnMapping {
+  const writeMode: ColumnMapping['writeMode'] =
+    c.writeMode === 'fillExisting' ? 'fillExisting' : 'newColumn';
+  const sourceColumn = c.sourceColumn ?? '';
+  return {
+    sourceColumn,
+    writeMode,
+    outputName: c.outputName ?? sourceColumn,
+    position: c.position ?? { type: 'append' },
+    targetColumn:
+      writeMode === 'fillExisting'
+        ? (c.targetColumn ?? mainColumns[0] ?? undefined)
+        : c.targetColumn,
+    forceOverwrite: c.forceOverwrite === true,
+  };
 }
 
 function runInWorker(
