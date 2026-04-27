@@ -6,6 +6,8 @@
 
 > Lo screenshot è un placeholder: il tuo build avrà il look reale.
 
+> All'interno dell'app trovi una **Guida** completa cliccando sull'icona libro nell'header. Per le **note legali** vedi il footer (oppure guarda il banner che compare al primo avvio).
+
 ## Come funziona
 
 1. **Carica i tuoi file** — Excel (`.xlsx`, `.xls`) o CSV. Drag & drop o click. Anteprima delle prime righe per ogni file, scelta del foglio, toggle "prima riga = intestazione".
