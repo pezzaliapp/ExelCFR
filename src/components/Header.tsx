@@ -1,7 +1,12 @@
-import { Github, ShieldCheck } from 'lucide-react';
+import { BookOpen, Github, ShieldCheck } from 'lucide-react';
 import { DarkModeToggle } from './DarkModeToggle';
 
-export function Header({ repoUrl }: { repoUrl: string }) {
+interface Props {
+  repoUrl: string;
+  onOpenGuide: () => void;
+}
+
+export function Header({ repoUrl, onOpenGuide }: Props) {
   return (
     <header className="border-b border-slate-200 bg-white/70 backdrop-blur dark:border-slate-800 dark:bg-slate-950/70">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -22,6 +27,16 @@ export function Header({ repoUrl }: { repoUrl: string }) {
           <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900">
             <ShieldCheck size={14} /> 100% locale, nessun upload
           </span>
+          <button
+            type="button"
+            onClick={onOpenGuide}
+            className="btn-ghost h-9 !px-2 sm:!px-3"
+            aria-label="Apri la guida"
+            title="Guida"
+          >
+            <BookOpen size={18} />
+            <span className="hidden text-sm font-medium sm:inline">Guida</span>
+          </button>
           <a
             href={repoUrl}
             target="_blank"

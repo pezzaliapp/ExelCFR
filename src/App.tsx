@@ -1,8 +1,15 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  DISCLAIMER_VERSION,
+  DisclaimerModal,
+  readDisclaimer,
+  writeDisclaimer,
+} from './components/DisclaimerModal';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { StepShell } from './components/StepShell';
 import { ToastStack, type ToastItem, type ToastKind } from './components/Toast';
+import { Manuale } from './pages/Manuale';
 import { ExportStep } from './steps/ExportStep';
 import { MainFileStep } from './steps/MainFileStep';
 import { RulesStep } from './steps/RulesStep';
@@ -10,7 +17,11 @@ import { UploadStep } from './steps/UploadStep';
 import type { FileData, LookupRule } from './types';
 
 const REPO_URL = 'https://github.com/pezzaliapp/ExelCFR';
-const VERSION = '0.2.0';
+const APP_URL = 'https://www.alessandropezzali.it/ExelCFR/';
+const VERSION = '0.3.0';
+
+type View = 'app' | 'guide';
+type DisclaimerState = null | 'firstRun' | 'readonly';
 
 function App() {
   const [files, setFiles] = useState<FileData[]>([]);
@@ -18,6 +29,22 @@ function App() {
   const [mainFileId, setMainFileId] = useState<string | null>(null);
   const [rules, setRules] = useState<LookupRule[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [view, setView] = useState<View>('app');
+  const [disclaimer, setDisclaimer] = useState<DisclaimerState>(null);
+
+  // Decide if the disclaimer must be shown at boot. Runs once on mount.
+  useEffect(() => {
+    const stored = readDisclaimer();
+    if (!stored || stored.version !== DISCLAIMER_VERSION) {
+      setDisclaimer('firstRun');
+    }
+  }, []);
+
+  // When changing view back to "app" after the manual, scroll to top so the user
+  // doesn't land in the middle of the page.
+  useEffect(() => {
+    if (view === 'app') window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [view]);
 
   const pushToast = useCallback((kind: ToastKind, message: string) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -92,84 +119,116 @@ function App() {
     }
   };
 
+  const openGuide = () => setView('guide');
+  const closeGuide = () => setView('app');
+  const openDisclaimer = () => setDisclaimer('readonly');
+  const closeDisclaimer = () => {
+    // 'firstRun' cannot be dismissed without acceptance; this only fires for 'readonly'
+    setDisclaimer(null);
+  };
+  const acceptDisclaimer = () => {
+    writeDisclaimer(DISCLAIMER_VERSION);
+    setDisclaimer(null);
+  };
+
   return (
     <div className="min-h-full">
-      <Header repoUrl={REPO_URL} />
-      <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        <Intro />
-        <StepShell
-          number={1}
-          title="Carica i file"
-          subtitle={
-            files.length === 0
-              ? 'Excel o CSV — uno o più, drag & drop o sfoglia.'
-              : `${files.length} file caricati`
-          }
-        >
-          <UploadStep
-            files={files}
-            rawFiles={rawFilesRef.current}
-            onAdd={addFiles}
-            onRemove={removeFile}
-            onUpdate={updateFile}
-            onError={(m) => pushToast('error', m)}
-            onWarn={(m) => pushToast('warning', m)}
-          />
-        </StepShell>
-
-        <StepShell
-          number={2}
-          title="Scegli il file principale"
-          subtitle={
-            mainFile ? `Principale: ${mainFile.label}` : 'Carica almeno due file per scegliere'
-          }
-          locked={files.length < 2}
-        >
-          <MainFileStep files={files} mainFileId={mainFileId} onChange={handleSetMain} />
-        </StepShell>
-
-        <StepShell
-          number={3}
-          title="Configura le regole di lookup"
-          subtitle={
-            rules.length === 0
-              ? 'Aggiungi una regola per ogni colonna che vuoi importare.'
-              : `${rules.length} regola/e definita/e`
-          }
-          locked={!canConfigureRules}
-        >
-          {mainFile ? (
-            <RulesStep
-              mainFile={mainFile}
-              sourceFiles={sourceFiles}
-              rules={rules}
-              onChange={setRules}
-            />
-          ) : null}
-        </StepShell>
-
-        <StepShell
-          number={4}
-          title="Anteprima ed esporta"
-          subtitle={
-            canExport
-              ? 'Calcola il risultato e scarica come Excel o CSV.'
-              : 'Definisci almeno una regola con una colonna selezionata.'
-          }
-          locked={!canExport}
-        >
-          {mainFile && canExport ? (
-            <ExportStep
+      <Header repoUrl={REPO_URL} onOpenGuide={openGuide} />
+      {view === 'guide' ? (
+        <Manuale
+          onClose={closeGuide}
+          onOpenDisclaimer={openDisclaimer}
+          appUrl={APP_URL}
+          repoUrl={REPO_URL}
+        />
+      ) : (
+        <main className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+          <Intro />
+          <StepShell
+            number={1}
+            title="Carica i file"
+            subtitle={
+              files.length === 0
+                ? 'Excel o CSV — uno o più, drag & drop o sfoglia.'
+                : `${files.length} file caricati`
+            }
+          >
+            <UploadStep
               files={files}
-              mainFile={mainFile}
-              rules={rules}
-              onLoadConfig={handleLoadConfig}
+              rawFiles={rawFilesRef.current}
+              onAdd={addFiles}
+              onRemove={removeFile}
+              onUpdate={updateFile}
+              onError={(m) => pushToast('error', m)}
+              onWarn={(m) => pushToast('warning', m)}
             />
-          ) : null}
-        </StepShell>
-      </main>
-      <Footer repoUrl={REPO_URL} version={VERSION} />
+          </StepShell>
+
+          <StepShell
+            number={2}
+            title="Scegli il file principale"
+            subtitle={
+              mainFile ? `Principale: ${mainFile.label}` : 'Carica almeno due file per scegliere'
+            }
+            locked={files.length < 2}
+          >
+            <MainFileStep files={files} mainFileId={mainFileId} onChange={handleSetMain} />
+          </StepShell>
+
+          <StepShell
+            number={3}
+            title="Configura le regole di lookup"
+            subtitle={
+              rules.length === 0
+                ? 'Aggiungi una regola per ogni colonna che vuoi importare.'
+                : `${rules.length} regola/e definita/e`
+            }
+            locked={!canConfigureRules}
+          >
+            {mainFile ? (
+              <RulesStep
+                mainFile={mainFile}
+                sourceFiles={sourceFiles}
+                rules={rules}
+                onChange={setRules}
+              />
+            ) : null}
+          </StepShell>
+
+          <StepShell
+            number={4}
+            title="Anteprima ed esporta"
+            subtitle={
+              canExport
+                ? 'Calcola il risultato e scarica come Excel o CSV.'
+                : 'Definisci almeno una regola con una colonna selezionata.'
+            }
+            locked={!canExport}
+          >
+            {mainFile && canExport ? (
+              <ExportStep
+                files={files}
+                mainFile={mainFile}
+                rules={rules}
+                onLoadConfig={handleLoadConfig}
+              />
+            ) : null}
+          </StepShell>
+        </main>
+      )}
+      <Footer
+        repoUrl={REPO_URL}
+        version={VERSION}
+        onOpenGuide={openGuide}
+        onOpenDisclaimer={openDisclaimer}
+      />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <DisclaimerModal
+        open={disclaimer !== null}
+        mode={disclaimer === 'firstRun' ? 'accept' : 'readonly'}
+        onAccept={acceptDisclaimer}
+        onClose={closeDisclaimer}
+      />
     </div>
   );
 }
