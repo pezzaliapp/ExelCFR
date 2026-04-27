@@ -1,10 +1,12 @@
 import type {
+  CellMark,
   CellValue,
   ColumnMapping,
   CompareMode,
   FileData,
   LookupRule,
   MergedResult,
+  MultiMatchMode,
   RuleStats,
 } from '../types';
 
@@ -88,6 +90,27 @@ function cellToString(v: CellValue): string {
   return String(v);
 }
 
+/** A cell is "empty" iff null, undefined, or "". Strings of spaces or "-" / "N/D" are NOT empty. */
+function isEmptyCell(v: CellValue): boolean {
+  return v === null || v === undefined || v === '';
+}
+
+/** Resolve the source value for a key match according to multi-match mode. */
+function resolveMatchValue(
+  rows: CellValue[][],
+  matches: number[],
+  sourceIdx: number,
+  mode: MultiMatchMode,
+  concatSep: string,
+): CellValue {
+  if (mode === 'first') return rows[matches[0]][sourceIdx];
+  if (mode === 'last') return rows[matches[matches.length - 1]][sourceIdx];
+  const collected = matches
+    .map((mi) => cellToString(rows[mi][sourceIdx]))
+    .filter((s) => s.length > 0);
+  return collected.length > 0 ? collected.join(concatSep) : null;
+}
+
 interface ApplyRulesArgs {
   mainFile: FileData;
   /** All known files indexed by id, including main + sources. */
@@ -99,7 +122,8 @@ interface ApplyRulesArgs {
 
 /**
  * Apply lookup rules sequentially against the main file's active sheet.
- * Returns the merged columns/rows and per-rule stats.
+ * Returns the merged columns/rows and per-rule stats, plus per-cell marks
+ * for cells touched by fillExisting mappings.
  */
 export function applyRules({
   mainFile,
@@ -111,6 +135,7 @@ export function applyRules({
   let columns: string[] = [...mainSheet.columns];
   let rows: CellValue[][] = mainSheet.rows.map((r) => [...r]);
   const stats: RuleStats[] = [];
+  const cellMarks = new Map<string, CellMark>();
 
   const totalSteps = rules.length || 1;
   let stepIndex = 0;
@@ -129,20 +154,34 @@ export function applyRules({
       continue;
     }
     const index = buildIndex(srcSheet.rows, srcKeyIdx, rule.compareMode);
-
-    // Resolve source-column indices and column placement plan
-    const sourceIdxs = rule.columns.map((c) => srcSheet.columns.indexOf(c.sourceColumn));
-    const plan = planInsertion(columns, rule.columns);
-
-    // For each new column, capture the mapping resolved name
-    const insertedAt: number[] = plan.insertOrder.map((p) => p.finalIndex);
-
-    // Build the new rows: insert placeholder cells at planned positions, then fill.
     const noMatchValue: CellValue =
       rule.noMatch === 'empty' ? null : rule.noMatch === 'na' ? 'N/D' : (rule.noMatchCustom ?? '');
+    const concatSep = rule.concatSeparator ?? '; ';
+
+    // Split mappings by mode. Plan insertions only for newColumn mappings so that
+    // fillExisting never appends a new column to the output.
+    const newColMappings = rule.columns.filter((c) => c.writeMode === 'newColumn');
+    const fillMappings = rule.columns.filter((c) => c.writeMode === 'fillExisting');
+
+    const plan = planInsertion(columns, newColMappings);
+    const insertedAt = plan.insertOrder.map((p) => p.finalIndex);
+    const newColSourceIdxs = newColMappings.map((m) => srcSheet.columns.indexOf(m.sourceColumn));
+
+    // For fillExisting, resolve target column indices in the *post-insertion* column array.
+    const fillTargets = fillMappings.map((m) => {
+      const targetName = m.targetColumn ?? '';
+      return {
+        mapping: m,
+        targetColumnName: targetName,
+        targetIndex: targetName ? plan.finalColumns.indexOf(targetName) : -1,
+        sourceIdx: srcSheet.columns.indexOf(m.sourceColumn),
+      };
+    });
 
     let matchCount = 0;
-    const concatSep = rule.concatSeparator ?? '; ';
+    let filledCount = 0;
+    let overwrittenCount = 0;
+    let untouchedCount = 0;
 
     const nextRows: CellValue[][] = new Array(rows.length);
     for (let r = 0; r < rows.length; r++) {
@@ -150,55 +189,94 @@ export function applyRules({
       const keyVal = row[mainKeyIdx] ?? null;
       const k = normalizeKey(keyVal, rule.compareMode);
       const matches = k === '' ? undefined : index.get(k);
+      const keyMatched = !!(matches && matches.length > 0);
+      if (keyMatched) matchCount++;
 
-      // Compute the values for each new column for this row
-      const newValues: CellValue[] = new Array(rule.columns.length);
-      if (matches && matches.length > 0) {
-        matchCount++;
-        for (let c = 0; c < rule.columns.length; c++) {
-          const sIdx = sourceIdxs[c];
-          if (sIdx === -1) {
-            newValues[c] = noMatchValue;
-            continue;
-          }
-          if (rule.multiMatch === 'first') {
-            newValues[c] = srcSheet.rows[matches[0]][sIdx] ?? noMatchValue;
-          } else if (rule.multiMatch === 'last') {
-            newValues[c] = srcSheet.rows[matches[matches.length - 1]][sIdx] ?? noMatchValue;
+      // 1) Build the row with new-column values inserted.
+      const built: CellValue[] = [...row];
+      for (let c = 0; c < newColMappings.length; c++) {
+        const sIdx = newColSourceIdxs[c];
+        let val: CellValue;
+        if (!keyMatched || sIdx === -1) {
+          val = noMatchValue;
+        } else {
+          const raw = resolveMatchValue(srcSheet.rows, matches!, sIdx, rule.multiMatch, concatSep);
+          val = isEmptyCell(raw) ? noMatchValue : raw;
+        }
+        built.splice(insertedAt[c], 0, val);
+      }
+
+      // 2) Apply fillExisting writes against `built`. Indices are already in the
+      // post-insertion column space, so they are stable as we splice above.
+      for (const ft of fillTargets) {
+        if (ft.targetIndex === -1 || ft.sourceIdx === -1) {
+          untouchedCount++;
+          continue;
+        }
+        const cur = built[ft.targetIndex];
+        const cellEmpty = isEmptyCell(cur);
+        const force = ft.mapping.forceOverwrite === true;
+
+        let valueToWrite: CellValue;
+        if (keyMatched) {
+          const raw = resolveMatchValue(
+            srcSheet.rows,
+            matches!,
+            ft.sourceIdx,
+            rule.multiMatch,
+            concatSep,
+          );
+          valueToWrite = isEmptyCell(raw) ? noMatchValue : raw;
+        } else {
+          valueToWrite = noMatchValue;
+        }
+        const writeIsBlank = isEmptyCell(valueToWrite);
+
+        if (cellEmpty) {
+          if (writeIsBlank) {
+            untouchedCount++;
           } else {
-            const collected = matches
-              .map((mi) => cellToString(srcSheet.rows[mi][sIdx]))
-              .filter((s) => s.length > 0);
-            newValues[c] = collected.length > 0 ? collected.join(concatSep) : noMatchValue;
+            built[ft.targetIndex] = valueToWrite;
+            cellMarks.set(`${r}:${ft.targetColumnName}`, 'filled');
+            filledCount++;
+          }
+        } else {
+          // Cell already has a value: only overwrite when force AND we have a real key match
+          // AND the resolved write is non-blank.
+          if (force && keyMatched && !writeIsBlank) {
+            built[ft.targetIndex] = valueToWrite;
+            cellMarks.set(`${r}:${ft.targetColumnName}`, 'overwritten');
+            overwrittenCount++;
+          } else {
+            untouchedCount++;
           }
         }
-      } else {
-        for (let c = 0; c < rule.columns.length; c++) newValues[c] = noMatchValue;
       }
 
-      // Build the new row by inserting newValues at insertedAt indices.
-      // Important: we must insert in the same order as plan.insertOrder, mutating a working copy.
-      const built: CellValue[] = [...row];
-      for (let c = 0; c < rule.columns.length; c++) {
-        built.splice(insertedAt[c], 0, newValues[c]);
-      }
       nextRows[r] = built;
     }
 
     columns = plan.finalColumns;
     rows = nextRows;
-    stats.push({
+
+    const ruleStats: RuleStats = {
       ruleId: rule.id,
       processed: rows.length,
       matches: matchCount,
       noMatches: rows.length - matchCount,
-    });
+    };
+    if (fillMappings.length > 0) {
+      ruleStats.filled = filledCount;
+      ruleStats.overwritten = overwrittenCount;
+      ruleStats.untouched = untouchedCount;
+    }
+    stats.push(ruleStats);
 
     stepIndex++;
     onProgress?.(stepIndex / totalSteps);
   }
 
-  return { columns, rows, stats };
+  return { columns, rows, stats, cellMarks };
 }
 
 /** Threshold above which the lookup should run in a Web Worker. */
