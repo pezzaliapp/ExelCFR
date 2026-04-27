@@ -9,7 +9,7 @@ import { RulesStep } from './steps/RulesStep';
 import { UploadStep } from './steps/UploadStep';
 import type { FileData, LookupRule } from './types';
 
-const REPO_URL = 'https://github.com/pezzalialessandro/ExelCFR';
+const REPO_URL = 'https://github.com/pezzaliapp/ExelCFR';
 const VERSION = '0.1.0';
 
 function App() {
