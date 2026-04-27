@@ -82,6 +82,6 @@ export function buildDefaultFilename(mainLabel: string): string {
     .replace(/[:.]/g, '-')
     .replace('T', '_')
     .slice(0, 19);
-  const base = mainLabel.replace(/\.[^.]+$/, '').replace(/[^\w\-]+/g, '_');
+  const base = mainLabel.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_');
   return `ExelCFR_${base || 'risultato'}_${stamp}`;
 }
