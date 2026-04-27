@@ -44,16 +44,35 @@ export type NoMatchMode = 'empty' | 'na' | 'custom';
 
 export type MultiMatchMode = 'first' | 'last' | 'concat';
 
+export type WriteMode = 'newColumn' | 'fillExisting';
+
 export interface ColumnMapping {
   /** Column name in the source file we are pulling from. */
   sourceColumn: string;
-  /** Output column name (precompiled, editable). */
+  /**
+   * How the looked-up value is written into the output:
+   * - 'newColumn'   → adds a new column (uses outputName + position)
+   * - 'fillExisting' → writes into an already-present column on the main file
+   *                    (uses targetColumn + forceOverwrite)
+   * Default: 'newColumn'.
+   */
+  writeMode: WriteMode;
+  /** Output column name (used only when writeMode === 'newColumn'). */
   outputName: string;
-  /** Insertion strategy. */
+  /** Insertion strategy (used only when writeMode === 'newColumn'). */
   position:
     | { type: 'append' }
     | { type: 'after'; columnName: string }
     | { type: 'index'; index: number };
+  /** Existing main-file column to fill (used only when writeMode === 'fillExisting'). */
+  targetColumn?: string;
+  /**
+   * Used only when writeMode === 'fillExisting'.
+   * If false (default), only empty cells (null / undefined / "") are filled.
+   * If true, cells with a key-match are overwritten too.
+   * Cells without a key-match are never overwritten by force.
+   */
+  forceOverwrite?: boolean;
 }
 
 export interface LookupRule {
@@ -78,12 +97,24 @@ export interface RuleStats {
   processed: number;
   matches: number;
   noMatches: number;
+  /** Set only when the rule has at least one fillExisting mapping. */
+  filled?: number;
+  overwritten?: number;
+  untouched?: number;
 }
+
+/** Mark for cells changed by a fillExisting mapping, used to highlight the preview. */
+export type CellMark = 'filled' | 'overwritten';
 
 export interface MergedResult {
   columns: string[];
   rows: CellValue[][];
   stats: RuleStats[];
+  /**
+   * Sparse cell-level marks for fillExisting writes.
+   * Key format: `${rowIndex}:${columnName}` (column name is stable across rule shifts).
+   */
+  cellMarks: Map<string, CellMark>;
 }
 
 export interface ConfigExport {
