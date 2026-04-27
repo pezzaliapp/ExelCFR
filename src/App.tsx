@@ -10,7 +10,7 @@ import { UploadStep } from './steps/UploadStep';
 import type { FileData, LookupRule } from './types';
 
 const REPO_URL = 'https://github.com/pezzaliapp/ExelCFR';
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 function App() {
   const [files, setFiles] = useState<FileData[]>([]);

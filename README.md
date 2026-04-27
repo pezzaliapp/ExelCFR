@@ -13,6 +13,17 @@
 3. **Configura le regole di lookup** — per ogni file sorgente: colonna chiave su entrambi i file, modalità di confronto (esatto, case‑insensitive, trim, normalize), una o più colonne da riportare, comportamento per i no‑match e per i match multipli.
 4. **Anteprima ed esporta** — vedi le prime 50 righe del risultato (con le colonne aggiunte evidenziate) e scarica il file finale come `.xlsx` o `.csv`. Salva o ricarica la configurazione come `.json` per riusarla.
 
+## Modalità di scrittura
+
+Per ciascuna colonna restituita da una regola di lookup puoi scegliere **come scriverla nel risultato**:
+
+- **Aggiungi nuova colonna** *(default)* — crea una colonna in più nel file di output (in coda, dopo una colonna scelta o a un indice). Comportamento storico.
+- **Riempi colonna esistente** — non aggiunge nessuna colonna: scrive il valore trovato dentro una colonna **già presente** nel file principale. Di default riempie **solo le celle vuote** (`null` / `undefined` / stringa `""`); con la spunta «Sovrascrivi anche se la cella ha già un valore» le celle con un match vengono sostituite (le celle senza match restano sempre intatte).
+
+> **Esempio**: il file principale ha una colonna `Descrizione` parzialmente compilata. In modalità "Riempi colonna esistente" su `Descrizione`, ExelCFR riempie solo le celle vuote attingendo dal listino sorgente, lasciando intatte le descrizioni già scritte a meno che non abiliti la sovrascrittura.
+
+Le configurazioni salvate in JSON con versioni precedenti (senza il campo `writeMode`) vengono automaticamente interpretate come «Aggiungi nuova colonna», quindi non serve rifarle.
+
 ## Privacy
 
 ExelCFR è **completamente client‑side**. Nessun file viene mai inviato a un server: il parsing, il merge e l'export avvengono nel tuo browser. La PWA, una volta installata, funziona anche **offline**. Quando la metti in produzione su GitHub Pages, l'unica connessione di rete avviene per scaricare l'app stessa la prima volta — i dati restano sempre sul tuo dispositivo.
