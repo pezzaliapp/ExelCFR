@@ -130,6 +130,7 @@ function RuleCard({ index, rule, mainFile, sourceFiles, onChange, onRemove }: Ru
     } else {
       const mapping: ColumnMapping = {
         sourceColumn: colName,
+        writeMode: 'newColumn',
         outputName: colName,
         position: { type: 'append' },
       };
@@ -241,46 +242,16 @@ function RuleCard({ index, rule, mainFile, sourceFiles, onChange, onRemove }: Ru
         </div>
 
         {rule.columns.length > 0 ? (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
-              <thead className="bg-slate-50 dark:bg-slate-900">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300">
-                    Da sorgente
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300">
-                    Nome in output
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300">
-                    Posizione
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rule.columns.map((m) => (
-                  <tr key={m.sourceColumn}>
-                    <td className="table-cell font-medium">{m.sourceColumn}</td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="input !py-1"
-                        value={m.outputName}
-                        onChange={(e) =>
-                          updateMapping(m.sourceColumn, { outputName: e.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <PositionPicker
-                        mapping={m}
-                        baseColumns={mainCols}
-                        onChange={(position) => updateMapping(m.sourceColumn, { position })}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="mt-4 space-y-3">
+            {rule.columns.map((m) => (
+              <MappingEditor
+                key={m.sourceColumn}
+                mapping={m}
+                mainColumns={mainCols}
+                onChange={(patch) => updateMapping(m.sourceColumn, patch)}
+              />
+            ))}
+          </ul>
         ) : null}
       </div>
 
@@ -330,6 +301,126 @@ function RuleCard({ index, rule, mainFile, sourceFiles, onChange, onRemove }: Ru
   );
 }
 
+interface MappingEditorProps {
+  mapping: ColumnMapping;
+  mainColumns: string[];
+  onChange: (patch: Partial<ColumnMapping>) => void;
+}
+
+function MappingEditor({ mapping, mainColumns, onChange }: MappingEditorProps) {
+  const isFill = mapping.writeMode === 'fillExisting';
+  return (
+    <li className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/40">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+          <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-950/60 dark:text-brand-300">
+            Da sorgente
+          </span>
+          {mapping.sourceColumn}
+        </span>
+        <div
+          role="tablist"
+          aria-label="Modalità di scrittura"
+          className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isFill}
+            onClick={() => {
+              if (isFill) {
+                onChange({
+                  writeMode: 'newColumn',
+                  outputName: mapping.outputName || mapping.sourceColumn,
+                  position: mapping.position ?? { type: 'append' },
+                });
+              }
+            }}
+            className={`rounded-md px-3 py-1 transition ${
+              !isFill
+                ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-950 dark:text-brand-300'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+            }`}
+          >
+            Aggiungi nuova colonna
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isFill}
+            onClick={() => {
+              if (!isFill) {
+                onChange({
+                  writeMode: 'fillExisting',
+                  targetColumn: mapping.targetColumn ?? mainColumns[0] ?? '',
+                  forceOverwrite: mapping.forceOverwrite ?? false,
+                });
+              }
+            }}
+            className={`rounded-md px-3 py-1 transition ${
+              isFill
+                ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-950 dark:text-brand-300'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+            }`}
+          >
+            Riempi colonna esistente
+          </button>
+        </div>
+      </div>
+
+      {!isFill ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="field-label">Nome nuova colonna</label>
+            <input
+              className="input mt-1"
+              value={mapping.outputName}
+              onChange={(e) => onChange({ outputName: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="field-label">Posizione</label>
+            <PositionPicker
+              mapping={mapping}
+              baseColumns={mainColumns}
+              onChange={(position) => onChange({ position })}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="field-label">Colonna di destinazione</label>
+            <select
+              className="input mt-1"
+              value={mapping.targetColumn ?? ''}
+              onChange={(e) => onChange({ targetColumn: e.target.value })}
+            >
+              <option value="">— seleziona —</option>
+              {mainColumns.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={mapping.forceOverwrite === true}
+                onChange={(e) => onChange({ forceOverwrite: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              Sovrascrivi anche se la cella ha già un valore
+            </label>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
 interface PositionPickerProps {
   mapping: ColumnMapping;
   baseColumns: string[];
@@ -339,7 +430,7 @@ interface PositionPickerProps {
 function PositionPicker({ mapping, baseColumns, onChange }: PositionPickerProps) {
   const type = mapping.position.type;
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="mt-1 flex flex-wrap items-center gap-2">
       <select
         className="input !py-1"
         value={type}
