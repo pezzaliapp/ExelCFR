@@ -38,7 +38,13 @@ export interface ParsedSheet {
   rows: CellValue[][];
 }
 
-export type CompareMode = 'exact' | 'caseInsensitive' | 'trim' | 'normalize';
+export type CompareMode =
+  | 'smart'
+  | 'exact'
+  | 'caseInsensitive'
+  | 'trim'
+  | 'normalize'
+  | 'numeric';
 
 export type NoMatchMode = 'empty' | 'na' | 'custom';
 
