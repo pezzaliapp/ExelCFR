@@ -10,28 +10,67 @@ import type {
   RuleStats,
 } from '../types';
 
+/**
+ * Deterministic stringification used as the foundation for every comparison
+ * mode. Numbers are rendered with `String(n)` so that integer values never
+ * fall back to scientific notation and decimals strip trailing zeros
+ * (`12.50` is the same JS number as `12.5` and renders as `"12.5"`).
+ */
+function deterministicStringify(value: CellValue): string {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return '';
+    return String(value);
+  }
+  return String(value);
+}
+
+const NUMERIC_RE = /^(-?)(\d+)(\.\d+)?$/;
+
 /** Normalize a key cell according to the chosen compare mode. */
 export function normalizeKey(value: CellValue, mode: CompareMode): string {
-  if (value === null || value === undefined) return '';
-  let s: string;
-  if (value instanceof Date) {
-    s = value.toISOString();
-  } else if (typeof value === 'number') {
-    s = String(value);
-  } else if (typeof value === 'boolean') {
-    s = value ? 'true' : 'false';
-  } else {
-    s = String(value);
-  }
+  const raw = deterministicStringify(value);
   switch (mode) {
     case 'exact':
-      return s;
+      return raw;
     case 'caseInsensitive':
-      return s.toLowerCase();
+      return raw.toLowerCase();
     case 'trim':
-      return s.trim();
+      return raw.trim();
     case 'normalize':
-      return s.trim().toLowerCase().replace(/\s+/g, ' ');
+      return raw.trim().toLowerCase().replace(/\s+/g, ' ');
+    case 'numeric': {
+      // Keep only digits, drop leading zeros. Empty if no digit is present.
+      const digits = raw.replace(/\D/g, '').replace(/^0+/, '');
+      return digits;
+    }
+    case 'smart':
+    default: {
+      // 1) Map space-like invisible chars to a regular space; strip zero-width
+      //    characters entirely. Both come from PDF copy-paste.
+      // 2) Trim, collapse internal whitespace, lowercase.
+      let s = raw
+        .replace(/[\u00A0\t\n\r]/g, ' ')
+        .replace(/[\u200B\uFEFF]/g, '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+      // 3) If the string is a plain number without a significant leading zero
+      //    (so "00123" stays "00123" but "12.50" becomes "12.5"), canonicalize
+      //    through Number() to bridge string⇄number type mismatches.
+      const m = NUMERIC_RE.exec(s);
+      if (m) {
+        const intPart = m[2];
+        const hasLeadingZero = intPart.length > 1 && intPart.startsWith('0');
+        if (!hasLeadingZero) {
+          const n = Number(s);
+          if (Number.isFinite(n)) s = String(n);
+        }
+      }
+      return s;
+    }
   }
 }
 
