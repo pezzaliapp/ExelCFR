@@ -16,13 +16,27 @@ interface Props {
   onChange: (rules: LookupRule[]) => void;
 }
 
+const COMPARE_MODE_DESCRIPTIONS: Record<CompareMode, string> = {
+  smart:
+    "Tollera differenze di tipo (numero/testo), spazi e maiuscole. Mantiene gli zeri iniziali.",
+  exact:
+    'Confronto rigoroso: i valori devono essere identici, stesso tipo, stesso case.',
+  caseInsensitive:
+    'Ignora maiuscole/minuscole. Numeri e stringhe restano distinti.',
+  trim: 'Rimuove gli spazi iniziali e finali, ma è case-sensitive.',
+  normalize:
+    'Trim + lowercase + spazi multipli interni collassati a uno solo.',
+  numeric:
+    'Confronta solo le cifre, ignora zeri iniziali e altri caratteri. Usalo per codici puramente numerici.',
+};
+
 function newRule(sourceFileId: string, mainKey: string, sourceKey: string): LookupRule {
   return {
     id: cryptoRandomId(),
     sourceFileId,
     mainKey,
     sourceKey,
-    compareMode: 'exact',
+    compareMode: 'smart',
     columns: [],
     noMatch: 'empty',
     multiMatch: 'first',
@@ -180,11 +194,16 @@ function RuleCard({ index, rule, mainFile, sourceFiles, onChange, onRemove }: Ru
             value={rule.compareMode}
             onChange={(e) => onChange({ compareMode: e.target.value as CompareMode })}
           >
+            <option value="smart">Smart (consigliata)</option>
             <option value="exact">Esatto</option>
-            <option value="caseInsensitive">Ignora maiuscole/minuscole</option>
-            <option value="trim">Ignora spazi iniziali e finali</option>
-            <option value="normalize">Normalizza (trim + minuscolo + spazi multipli)</option>
+            <option value="caseInsensitive">Case-insensitive</option>
+            <option value="trim">Trim spazi</option>
+            <option value="normalize">Normalizza (trim + lowercase + dedup spazi)</option>
+            <option value="numeric">Numerico (solo cifre, ignora zeri iniziali)</option>
           </select>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {COMPARE_MODE_DESCRIPTIONS[rule.compareMode]}
+          </p>
         </div>
 
         <div>
