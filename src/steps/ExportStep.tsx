@@ -1,4 +1,13 @@
-import { Download, FileDown, FileSpreadsheet, FileText, Loader2, Save, Upload } from 'lucide-react';
+import {
+  Download,
+  FileDown,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Save,
+  Search,
+  Upload,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProgressBar } from '../components/ProgressBar';
 import { ResultPreview } from '../components/ResultPreview';
@@ -7,8 +16,9 @@ import {
   exportCsv,
   exportXlsx,
 } from '../lib/exporter';
-import { applyRules, totalRowsTouched, WORKER_ROW_THRESHOLD } from '../lib/lookup';
+import { applyRules, normalizeKey, totalRowsTouched, WORKER_ROW_THRESHOLD } from '../lib/lookup';
 import type {
+  CellValue,
   ColumnMapping,
   ConfigExport,
   FileData,
@@ -29,6 +39,7 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<MergedResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [computedSnapshot, setComputedSnapshot] = useState<string | null>(null);
 
   const [filename, setFilename] = useState<string>(() => buildDefaultFilename(mainFile.label));
   const [csvSeparator, setCsvSeparator] = useState<',' | ';'>(';');
@@ -79,6 +90,14 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
     return issues;
   }, [rules, mainFile]);
 
+  // Snapshot of inputs at compute time. Used to detect when the user has
+  // changed configuration after running and the preview is therefore stale.
+  const currentSnapshot = useMemo(
+    () => JSON.stringify({ mainFileId: mainFile.id, rules }),
+    [mainFile.id, rules],
+  );
+  const isStale = result !== null && computedSnapshot !== null && computedSnapshot !== currentSnapshot;
+
   const run = async () => {
     setRunning(true);
     setProgress(0);
@@ -97,11 +116,68 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
         setResult(r);
       }
       setProgress(1);
+      setComputedSnapshot(currentSnapshot);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
     }
+  };
+
+  const downloadNoMatchCsv = (rule: LookupRule) => {
+    const src = files.find((f) => f.id === rule.sourceFileId);
+    if (!src) return;
+    const srcSheet = src.sheets[src.activeSheetIndex];
+    const srcKeyIdx = srcSheet.columns.indexOf(rule.sourceKey);
+    const mainSheet = mainFile.sheets[mainFile.activeSheetIndex];
+    const mainKeyIdx = mainSheet.columns.indexOf(rule.mainKey);
+    if (srcKeyIdx === -1 || mainKeyIdx === -1) return;
+
+    const sourceKeys = new Set<string>();
+    for (const r of srcSheet.rows) {
+      const k = normalizeKey(r[srcKeyIdx] ?? null, rule.compareMode);
+      if (k !== '') sourceKeys.add(k);
+    }
+
+    const header = ['#', `Chiave (${rule.mainKey}) non trovata`, ...mainSheet.columns];
+    const noMatchRows: string[][] = [];
+    for (let i = 0; i < mainSheet.rows.length; i++) {
+      const row = mainSheet.rows[i];
+      const key = normalizeKey(row[mainKeyIdx] ?? null, rule.compareMode);
+      const matched = key !== '' && sourceKeys.has(key);
+      if (matched) continue;
+      noMatchRows.push([
+        String(i + 1),
+        cellToPlainString(row[mainKeyIdx]),
+        ...row.map(cellToPlainString),
+      ]);
+    }
+
+    const sep = ';';
+    const lines = [header, ...noMatchRows].map((r) =>
+      r.map((cell) => csvEscape(cell, sep)).join(sep),
+    );
+    const text = '﻿' + lines.join('\r\n');
+
+    const stamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .replace('T', '_')
+      .slice(0, 19);
+    const baseName = mainFile.label.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_') || 'principale';
+    const sourceTag =
+      rules.length > 1 ? `_${(src.label || 'sorgente').replace(/[^\w-]+/g, '_')}` : '';
+    const fname = `ExelCFR_no-match_${baseName}${sourceTag}_${stamp}.csv`;
+
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
 
   const handleDownloadXlsx = () => {
@@ -253,6 +329,13 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
         </div>
       ) : null}
 
+      {isStale ? (
+        <div className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
+          Configurazione cambiata dopo l’ultimo calcolo. Ricalcola l’anteprima per aggiornare i
+          risultati.
+        </div>
+      ) : null}
+
       {running ? <ProgressBar value={progress} label="Esecuzione regole" /> : null}
 
       {error ? (
@@ -300,6 +383,15 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
                         – {fmt(s.untouched ?? 0)} celle lasciate intatte
                       </span>
                     </div>
+                  ) : null}
+                  {rule && s.noMatches > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => downloadNoMatchCsv(rule)}
+                      className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
+                    >
+                      <Search size={12} /> Scarica elenco no-match (.csv)
+                    </button>
                   ) : null}
                 </div>
               );
@@ -375,6 +467,17 @@ export function ExportStep({ files, mainFile, rules, onLoadConfig }: Props) {
       )}
     </div>
   );
+}
+
+function cellToPlainString(v: CellValue): string {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toLocaleDateString('it-IT');
+  return String(v);
+}
+
+function csvEscape(v: string, sep: string): string {
+  const needsQuote = v.includes(sep) || v.includes('"') || v.includes('\n') || v.includes('\r');
+  return needsQuote ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 
 /**
