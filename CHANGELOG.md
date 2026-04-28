@@ -4,6 +4,25 @@ Tutte le modifiche rilevanti a ExelCFR vengono annotate in questo file.
 
 Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e il progetto segue [Semantic Versioning](https://semver.org/lang/it/).
 
+## [0.4.0] — 2026-04-28
+
+### Added
+
+- Modalità di confronto **Smart** (default per le nuove regole) per confronto chiavi tollerante a tipi misti (numero/testo), spazi invisibili da copia-incolla PDF (NBSP, zero-width space, BOM) e differenze di case. Mantiene gli zeri iniziali per non perdere informazione.
+- Nuova modalità **Numerico** per codici puramente numerici con zeri iniziali variabili (`001234` ↔ `1234`).
+- Pulsante «Scarica elenco no-match (.csv)» nella scheda statistiche di ogni regola dello step «Anteprima ed esporta»: esporta righe del file principale senza corrispondenza con indice, chiave e tutte le colonne identificative del file principale.
+- Banner «Configurazione cambiata dopo l’ultimo calcolo» nello step 4 quando l’utente modifica le regole dopo aver calcolato l’anteprima.
+- Documentazione: array di casi attesi in `src/lib/lookup.test-cases.ts` per congelare il comportamento di `normalizeKey`.
+
+### Changed
+
+- Dropdown «Modalità di confronto» riordinato (Smart in cima) con descrizione testuale dinamica della modalità selezionata.
+- Sezione 8.3 del manuale interno riscritta intorno a Smart, con esempio concreto del problema dei tipi misti; sezione 14 «Risoluzione problemi» aggiornata con il nuovo caso e con il flusso del download no-match.
+
+### Compatibility
+
+- Le configurazioni `.json` salvate con versioni precedenti (`compareMode: 'exact' | 'caseInsensitive' | 'trim' | 'normalize'`) continuano a funzionare invariate.
+
 ## [0.3.0] — 2026-04-27
 
 ### Added
@@ -40,6 +59,7 @@ Il formato è basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/)
 
 - Prima release pubblica: scaffold Vite + React + TS + Tailwind, parsing Excel/CSV con SheetJS, motore di CERCA.VERT con Map indicizzata, esportazione `.xlsx` / `.csv`, UI a 4 step in italiano con dark mode, PWA installabile (manifest + service worker autoUpdate), workflow GitHub Pages.
 
+[0.4.0]: https://github.com/pezzaliapp/ExelCFR/releases/tag/v0.4.0
 [0.3.0]: https://github.com/pezzaliapp/ExelCFR/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pezzaliapp/ExelCFR/releases/tag/v0.2.0
 [0.1.0]: https://github.com/pezzaliapp/ExelCFR/releases/tag/v0.1.0

@@ -18,7 +18,7 @@ import type { FileData, LookupRule } from './types';
 
 const REPO_URL = 'https://github.com/pezzaliapp/ExelCFR';
 const APP_URL = 'https://www.alessandropezzali.it/ExelCFR/';
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 type View = 'app' | 'guide';
 type DisclaimerState = null | 'firstRun' | 'readonly';
