@@ -35,7 +35,7 @@ export function Manuale({ onClose, onOpenDisclaimer, appUrl, repoUrl }: Props) {
           <ArrowLeft size={16} /> Torna all’app
         </button>
         <span className="inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <BookOpen size={14} /> Guida d’uso · v0.3.0
+          <BookOpen size={14} /> Guida d’uso · v0.4.0
         </span>
       </div>
 
@@ -300,20 +300,43 @@ export function Manuale({ onClose, onOpenDisclaimer, appUrl, repoUrl }: Props) {
           </P>
 
           <H3>8.3 Modalità di confronto</H3>
+          <P>
+            È il «come» ExelCFR decide se due chiavi sono la stessa cosa. La modalità di default
+            (e consigliata) è <strong>Smart</strong>: copre il 90% dei casi reali, in particolare
+            il classico problema dei codici salvati come testo in un file e come numero
+            nell’altro.
+          </P>
           <Table>
             <thead>
               <tr><Th>Modalità</Th><Th>Quando usarla</Th><Th>Esempio</Th></tr>
             </thead>
             <tbody>
-              <tr><Td>Esatto</Td><Td>I codici sono già perfettamente coerenti.</Td><Td><code>ART001</code> ≠ <code>art001</code></Td></tr>
-              <tr><Td>Case-insensitive</Td><Td>Maiuscole/minuscole differenti.</Td><Td><code>ART001</code> = <code>art001</code></Td></tr>
-              <tr><Td>Trim</Td><Td>Spazi prima/dopo i codici.</Td><Td><code>«ART001 »</code> = <code>«ART001»</code></Td></tr>
-              <tr><Td>Normalizza</Td><Td>Caso reale: ignora maiuscole, spazi e doppi spazi.</Td><Td><code>« art 001»</code> = <code>«ART 001»</code></Td></tr>
+              <tr><Td><strong>Smart</strong> <span className="text-xs text-slate-500">(default)</span></Td><Td>Il file principale ha codici testo e il sorgente li ha come numeri (o viceversa). Spazi invisibili da copia-incolla, maiuscole differenti.</Td><Td><code>"20100376"</code> = <code>20100376</code></Td></tr>
+              <tr><Td>Esatto</Td><Td>I codici sono già perfettamente coerenti, stesso tipo e stesso case.</Td><Td><code>ART001</code> ≠ <code>art001</code></Td></tr>
+              <tr><Td>Case-insensitive</Td><Td>Maiuscole/minuscole differenti, niente altro.</Td><Td><code>ART001</code> = <code>art001</code></Td></tr>
+              <tr><Td>Trim spazi</Td><Td>Spazi prima/dopo i codici.</Td><Td><code>«ART001 »</code> = <code>«ART001»</code></Td></tr>
+              <tr><Td>Normalizza</Td><Td>Trim + lowercase + spazi multipli interni collassati.</Td><Td><code>« art 001»</code> = <code>«ART 001»</code></Td></tr>
+              <tr><Td>Numerico</Td><Td>Codici puramente numerici dove gli zeri iniziali variano (un sistema esporta <code>001234</code>, l’altro <code>1234</code>).</Td><Td><code>001234</code> = <code>1234</code></Td></tr>
             </tbody>
           </Table>
+          <H3>Esempio concreto del problema dei tipi misti</H3>
           <P>
-            <strong>Consiglio</strong>: per i codici articolo parti da <em>Normalizza</em>. Se sei
-            sicuro che siano identici al carattere, usa <em>Esatto</em>.
+            Se il tuo listino ha codici tipo <code>20100376</code> salvati come testo e il listino
+            del fornitore ha lo stesso codice salvato come numero, in modalità <strong>Smart</strong>{' '}
+            trovi comunque la corrispondenza. In modalità <em>Esatto</em> invece no:{' '}
+            <code>"20100376"</code> e <code>20100376</code> verrebbero considerati diversi perché
+            sono di tipo diverso.
+          </P>
+          <Note>
+            🛡️ In modalità <strong>Smart gli zeri iniziali sono sempre preservati</strong>:{' '}
+            <code>00123</code> e <code>123</code> restano codici diversi (gli zeri davanti possono
+            essere significativi). Se invece sai che sono lo stesso codice e vuoi ignorarli, usa la
+            modalità <strong>Numerico</strong>.
+          </Note>
+          <P>
+            <strong>Consiglio</strong>: parti sempre da <em>Smart</em>. Cambia solo se hai un
+            requisito preciso: <em>Esatto</em> per controlli rigorosi, <em>Numerico</em> per codici
+            con zeri iniziali variabili.
           </P>
 
           <H3>8.4 Colonne da riportare</H3>
@@ -536,9 +559,10 @@ export function Manuale({ onClose, onOpenDisclaimer, appUrl, repoUrl }: Props) {
             <code>(2)</code>, <code>(3)</code>, ecc. Così non si confondono.
           </Faq>
           <Faq q="Come confronto codici scritti in modo leggermente diverso?">
-            Usa la modalità di confronto <strong>Normalizza</strong>: ignora maiuscole, spazi
-            iniziali/finali e spazi multipli interni. Così <code>« art 001»</code> e{' '}
-            <code>«ART 001»</code> diventano lo stesso codice.
+            La modalità di default è <strong>Smart</strong>: ignora differenze di tipo
+            (testo vs numero), maiuscole, spazi normali e invisibili da copia-incolla, mantenendo
+            però gli zeri iniziali. Copre la maggior parte dei casi reali. Se i codici sono
+            puramente numerici e gli zeri davanti variano, usa <strong>Numerico</strong>.
           </Faq>
           <Faq q="Posso annullare un’operazione?">
             Non c’è un «annulla» dentro l’app, ma l’export è un file nuovo: il tuo file
@@ -550,9 +574,10 @@ export function Manuale({ onClose, onOpenDisclaimer, appUrl, repoUrl }: Props) {
             è responsive: lo step diventa una colonna sola.
           </Faq>
           <Faq q="L’app dice «nessun match trovato»: cosa controllo?">
-            Tre cose, in ordine: 1) le colonne chiave sono quelle giuste? 2) la modalità di
-            confronto è abbastanza permissiva? Prova <em>Normalizza</em>. 3) i codici scrivono lo
-            stesso identificatore? Apri i file e confronta una manciata di righe a campione.
+            Tre cose, in ordine: 1) le colonne chiave sono quelle giuste? 2) sei in modalità{' '}
+            <em>Smart</em>? È quella di default e gestisce automaticamente il caso più frequente
+            (codici testo vs numeri). 3) i codici scrivono lo stesso identificatore? Scarica
+            l’<strong>elenco no-match</strong> dalla scheda della regola e confronta in Excel.
           </Faq>
           <Faq q="Ho perso tutto chiudendo il browser: si recupera?">
             I dati caricati no — non vengono salvati per privacy. Le <em>regole</em>, però, le
@@ -574,9 +599,19 @@ export function Manuale({ onClose, onOpenDisclaimer, appUrl, repoUrl }: Props) {
               vuote, ecc.) e ricarica.
             </Li>
             <Li>
-              <strong>I codici non si accoppiano</strong> — usa <em>Normalizza</em>. Se non basta,
-              apri entrambi i file e confronta a mano una decina di codici per scoprire pattern
-              ricorrenti (es. trattini, prefissi).
+              <strong>I codici sembrano uguali ma l’app dice «nessun match»</strong> — è quasi
+              sempre un problema di tipo: un file salva il codice come testo (<code>"20100376"</code>)
+              e l’altro come numero (<code>20100376</code>). Usa la modalità di confronto{' '}
+              <strong>Smart</strong> (default), che riconosce automaticamente questo caso. Se anche
+              con Smart non trovi match, controlla se ci sono spazi nascosti, accenti o caratteri
+              speciali; in alternativa prova <strong>Numerico</strong> se i codici sono solo cifre.
+            </Li>
+            <Li>
+              <strong>I codici non si accoppiano</strong> — usa <em>Smart</em> o, in casi
+              residuali, <em>Normalizza</em>. Se non basta, apri entrambi i file e confronta a mano
+              una decina di codici per scoprire pattern ricorrenti (es. trattini, prefissi). Dallo
+              step 4 puoi scaricare l’<strong>elenco dei no-match in CSV</strong> per indagarli in
+              Excel senza filtrare a mano.
             </Li>
             <Li>
               <strong>Accenti corrotti nel CSV</strong> (à, è, ò → caratteri strani) — esporta con
